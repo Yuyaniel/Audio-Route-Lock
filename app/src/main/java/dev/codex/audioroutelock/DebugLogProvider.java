@@ -1,0 +1,54 @@
+package dev.codex.audioroutelock;
+
+import android.content.ContentProvider;
+import android.content.ContentValues;
+import android.database.Cursor;
+import android.net.Uri;
+import android.os.Bundle;
+
+/**
+ * 供注入到目标应用进程中的模块回传运行日志：
+ * 模块通过 ContentResolver.call(content://dev.codex.audioroutelock.debuglog, "append", message, null) 追加。
+ */
+public final class DebugLogProvider extends ContentProvider {
+    static final String AUTHORITY = "dev.codex.audioroutelock.debuglog";
+
+    @Override
+    public boolean onCreate() {
+        return true;
+    }
+
+    @Override
+    public Bundle call(String method, String arg, Bundle extras) {
+        if ("append".equals(method) && arg != null && !arg.isEmpty()) {
+            AppLog.append(getContext(), arg);
+            return new Bundle();
+        }
+        return null;
+    }
+
+    @Override
+    public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs, String sortOrder) {
+        return null;
+    }
+
+    @Override
+    public String getType(Uri uri) {
+        return null;
+    }
+
+    @Override
+    public Uri insert(Uri uri, ContentValues values) {
+        return null;
+    }
+
+    @Override
+    public int delete(Uri uri, String selection, String[] selectionArgs) {
+        return 0;
+    }
+
+    @Override
+    public int update(Uri uri, ContentValues values, String selection, String[] selectionArgs) {
+        return 0;
+    }
+}

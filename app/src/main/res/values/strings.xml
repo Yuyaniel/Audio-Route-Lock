@@ -1,0 +1,107 @@
+<resources>
+    <string name="app_name">音频路由锁定</string>
+    <string name="app_description">将作用域内的应用锁定到指定的音频输出设备，设备丢失时静音播放。</string>
+
+    <string name="module_status_normal">模块运行正常</string>
+    <string name="module_status_loaded_sub">LSPosed 已加载 音频路由锁定</string>
+    <string name="module_status_warning">模块已激活，目标应用未注入</string>
+    <string name="module_status_warning_sub">请检查目标应用的作用域与注入状态</string>
+    <string name="module_status_error">模块未加载</string>
+    <string name="module_status_error_sub">LSPosed 未加载 音频路由锁定</string>
+    <string name="remote_status_title">模块远程运行状态</string>
+    <string name="remote_status_available">可用</string>
+    <string name="remote_status_unavailable">不可用</string>
+
+    <string name="enable_route_lock">启用路由锁定</string>
+    <string name="silence_when_missing">锁定设备不可用时静音目标应用</string>
+    <string name="debug_log">输出调试日志（排查注入问题）</string>
+
+    <string name="pick_target_app">选择目标应用</string>
+    <string name="search_app_hint">搜索应用名或包名</string>
+    <string name="no_matching_app">未找到匹配的应用</string>
+    <string name="loading_apps">正在加载应用列表…</string>
+    <string name="back">返回</string>
+    <string name="target_app_count">已选择 %1$d 个应用</string>
+    <string name="selected_apps_empty">尚未选择，点按可选择多个应用</string>
+
+    <string name="tab_home">首页</string>
+    <string name="tab_apps">应用</string>
+    <string name="tab_log">日志</string>
+
+    <string name="section_overview">运行概览</string>
+    <string name="overview_route_lock">路由锁定</string>
+    <string name="overview_route_lock_on">已启用</string>
+    <string name="overview_route_lock_off">已停用</string>
+    <string name="overview_target_apps">目标应用</string>
+    <string name="overview_target_apps_value">共 %1$d 个，%2$d 个已生效</string>
+    <string name="overview_output_devices">输出设备</string>
+    <string name="overview_device_configured">已为 %1$d/%2$d 个应用设置</string>
+    <string name="device_available">可用</string>
+    <string name="device_unavailable">不可用</string>
+    <string name="device_unavailable_label">%1$s（当前不可用）</string>
+
+    <string name="section_lock">锁定设置</string>
+    <string name="section_effective_apps">已生效应用</string>
+
+    <string name="app_device_label">输出设备</string>
+    <string name="app_device_unset">未设置</string>
+    <string name="app_state_active">已生效</string>
+    <string name="app_state_not_running">未运行</string>
+    <string name="app_state_not_scoped">待授权</string>
+    <string name="app_state_stale">待重启</string>
+    <string name="app_state_no_device">待设置设备</string>
+    <string name="no_effective_apps">还没有选择目标应用，点按上方「选择目标应用」添加</string>
+
+    <string name="remove_app_title">移除目标应用</string>
+    <string name="remove_app_message">不再锁定「%1$s」？该应用会恢复正常音频路由。</string>
+    <string name="confirm">确定</string>
+    <string name="cancel">取消</string>
+
+    <string name="app_action_open">打开应用</string>
+    <string name="app_action_force_restart">强制重启</string>
+    <string name="toast_no_launcher">该应用没有可启动的入口</string>
+    <string name="toast_force_restarting">正在强制重启并重新打开…</string>
+
+    <string name="log_empty">暂无日志。重启目标应用后，这里会显示模块的运行日志。</string>
+    <string name="log_disabled_hint">调试日志未开启。请先在首页开启「输出调试日志」，再回到这里查看。</string>
+    <string name="log_refresh">刷新</string>
+    <string name="log_clear">清空日志</string>
+
+    <string name="request_scope">加入模块作用域</string>
+    <string name="request_scope_summary">有 %1$d 个应用待授权</string>
+    <string name="auto_save_hint">以上修改会自动保存并同步给模块。</string>
+
+    <string name="reset_settings">恢复默认设置</string>
+    <string name="reset_settings_summary">清空目标应用、输出设备与所有开关</string>
+    <string name="reset_settings_message">确定清空所有设置并恢复默认吗？此操作不可撤销。</string>
+    <string name="reset_done">已恢复默认设置</string>
+
+    <string name="refresh_devices">刷新输出设备</string>
+
+    <string name="no_output_device">未找到输出设备</string>
+    <string name="toast_scope_approved">已将 %1$s 加入模块作用域，请重启目标应用使其生效</string>
+    <string name="toast_scope_failed">申请作用域失败：%1$s</string>
+    <string name="toast_scope_requested">已向 LSPosed 提交作用域申请，请在弹窗中确认</string>
+
+    <string name="device_type_speaker">内置扬声器</string>
+    <string name="device_type_earpiece">听筒</string>
+    <string name="device_type_bluetooth_a2dp">蓝牙音频（A2DP）</string>
+    <string name="device_type_bluetooth_sco">蓝牙通话（SCO）</string>
+    <string name="device_type_ble_headset">蓝牙 LE 耳机</string>
+    <string name="device_type_ble_speaker">蓝牙 LE 扬声器</string>
+    <string name="device_type_wired_headset">有线耳机</string>
+    <string name="device_type_wired_headphones">有线耳机（无麦克风）</string>
+    <string name="device_type_usb_device">USB 音频设备</string>
+    <string name="device_type_usb_headset">USB 耳机</string>
+    <string name="device_type_hdmi">HDMI 输出</string>
+    <string name="device_type_line_analog">模拟线路输出</string>
+    <string name="device_type_aux_line">辅助线路输出</string>
+    <string name="device_type_telephony">通话音频</string>
+    <string name="device_type_remote_submix">远程混音</string>
+    <string name="device_type_hearing_aid">助听器</string>
+    <string name="device_type_dock">底座</string>
+    <string name="device_type_fm">FM 调频输出</string>
+    <string name="device_type_ip">IP 音频设备</string>
+    <string name="device_type_bus">总线音频设备</string>
+    <string name="device_type_other">输出设备（类型 %1$d）</string>
+</resources>
