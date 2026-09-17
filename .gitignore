@@ -10,3 +10,6 @@ local.properties
 *.class
 *.log
 .DS_Store
+
+# 签名密钥不入库：本地缺省时由 build-release.sh 自动生成，CI 从 secrets 还原
+release.keystore

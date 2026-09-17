@@ -12,7 +12,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.webkit.WebView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -23,6 +22,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -99,6 +99,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
 import java.text.Collator
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 private const val ICON_BITMAP_SIZE = 96
 
@@ -140,6 +141,7 @@ private fun AudioRouteLockApp() {
     var enabled by remember { mutableStateOf(initial.enabled) }
     var muteWhenMissing by remember { mutableStateOf(initial.muteWhenMissing) }
     var debugLog by remember { mutableStateOf(initial.debug) }
+
     var targets by remember { mutableStateOf(initial.targetPackages.toList()) }
     var deviceMap by remember { mutableStateOf(initial.deviceMap) }
     var devices by remember { mutableStateOf(loadOutputDevices(context)) }
@@ -155,7 +157,6 @@ private fun AudioRouteLockApp() {
     var apps by remember { mutableStateOf<List<AppEntry>?>(null) }
     var pendingRemoval by remember { mutableStateOf<String?>(null) }
     var appActionsTarget by remember { mutableStateOf<String?>(null) }
-    var pendingReset by remember { mutableStateOf(false) }
     var manualAddOpen by remember { mutableStateOf(false) }
     var logText by remember { mutableStateOf("") }
 
@@ -206,18 +207,12 @@ private fun AudioRouteLockApp() {
         )
     }
 
-    fun resetAll() {
-        RouteSettingsStore.reset(context)
-        enabled = false
-        muteWhenMissing = true
-        debugLog = false
-        targets = emptyList()
-        deviceMap = emptyMap()
-        devices = loadOutputDevices(context)
-        pendingReset = false
-        refreshStatus()
-        AppLog.append(context, "已恢复默认设置")
-        Toast.makeText(context, R.string.reset_done, Toast.LENGTH_SHORT).show()
+    /** 高频编辑（应用选择器里连续勾选）走合并镜像，避免每次点击都在主线程做 binder + commit。 */
+    fun persistDeferred() {
+        RouteSettingsStore.saveDeferred(
+            context,
+            RouteSettings(enabled, targets, deviceMap, muteWhenMissing, debugLog),
+        )
     }
 
     /** 把包名加入目标列表（校验非空/非自身/未重复/已安装），新目标继承已有应用的设备配置。 */
@@ -262,25 +257,6 @@ private fun AudioRouteLockApp() {
         return true
     }
 
-    /** 一键把当前设备实际使用的 WebView 提供方加入目标（解决 Via 等浏览器网页音频不生效）。 */
-    fun addWebViewProvider() {
-        val provider = try {
-            WebView.getCurrentWebViewPackage()?.packageName
-        } catch (t: Throwable) {
-            null
-        }
-        if (provider == null) {
-            Toast.makeText(context, R.string.toast_webview_missing, Toast.LENGTH_SHORT).show()
-            return
-        }
-        if (targets.contains(provider)) {
-            Toast.makeText(context, R.string.toast_pkg_already, Toast.LENGTH_SHORT).show()
-            return
-        }
-        addTarget(provider)
-        AppLog.append(context, "WebView 提供方：$provider")
-    }
-
     DisposableEffect(Unit) {
         val listener = Runnable { Handler(Looper.getMainLooper()).post { refreshStatus() } }
         App.addServiceListener(listener)
@@ -319,7 +295,7 @@ private fun AudioRouteLockApp() {
                         deviceMap = deviceMap + (packageName to inherited)
                     }
                 }
-                persist()
+                persistDeferred()
             },
             onBack = {
                 picking = false
@@ -402,7 +378,6 @@ private fun AudioRouteLockApp() {
                     debugLog = it
                     persist()
                 },
-                onResetRequest = { pendingReset = true },
             )
 
             AppTab.Apps -> AppsTab(
@@ -423,7 +398,6 @@ private fun AudioRouteLockApp() {
                     persist()
                 },
                 onAddByPackage = { manualAddOpen = true },
-                onAddWebViewProvider = { addWebViewProvider() },
             )
 
             AppTab.Log -> LogTab(
@@ -509,31 +483,6 @@ private fun AudioRouteLockApp() {
             )
         }
 
-        if (pendingReset) {
-            OverlayDialog(
-                show = true,
-                title = stringResource(R.string.reset_settings),
-                summary = stringResource(R.string.reset_settings_message),
-                onDismissRequest = { pendingReset = false },
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    TextButton(
-                        text = stringResource(R.string.cancel),
-                        onClick = { pendingReset = false },
-                        modifier = Modifier.weight(1f),
-                    )
-                    Button(
-                        onClick = { resetAll() },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text(stringResource(R.string.confirm))
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -551,7 +500,6 @@ private fun HomeTab(
     onEnabledChange: (Boolean) -> Unit,
     onMuteChange: (Boolean) -> Unit,
     onDebugChange: (Boolean) -> Unit,
-    onResetRequest: () -> Unit,
 ) {
     Column(
         modifier = modifier
@@ -653,19 +601,6 @@ private fun HomeTab(
             )
         }
 
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            insideMargin = PaddingValues(0.dp),
-        ) {
-            ArrowPreference(
-                title = stringResource(R.string.reset_settings),
-                summary = stringResource(R.string.reset_settings_summary),
-                onClick = onResetRequest,
-            )
-        }
-
         Text(
             text = stringResource(R.string.auto_save_hint),
             style = MiuixTheme.textStyles.footnote1,
@@ -691,7 +626,6 @@ private fun AppsTab(
     onAppActionsRequest: (String) -> Unit,
     onDeviceSelected: (String, DeviceEntry) -> Unit,
     onAddByPackage: () -> Unit,
-    onAddWebViewProvider: () -> Unit,
 ) {
     val context = LocalContext.current
 
@@ -715,17 +649,6 @@ private fun AppsTab(
                     stringResource(R.string.target_app_count, targets.size)
                 },
                 onClick = onPickApps,
-            )
-            HorizontalDivider(modifier = Modifier.padding(start = 16.dp))
-            val webViewProvider = remember { detectWebViewProvider() }
-            ArrowPreference(
-                title = stringResource(R.string.add_webview_provider),
-                summary = if (webViewProvider != null) {
-                    stringResource(R.string.add_webview_provider_summary_with_pkg, webViewProvider)
-                } else {
-                    stringResource(R.string.add_webview_provider_summary)
-                },
-                onClick = onAddWebViewProvider,
             )
             HorizontalDivider(modifier = Modifier.padding(start = 16.dp))
             ArrowPreference(
@@ -954,60 +877,88 @@ private fun LogTab(
     onRefresh: () -> Unit,
     onClear: () -> Unit,
 ) {
+    // 每条日志形如 "HH:mm:ss 正文"，拆开排版（时间戳淡色、正文独立换行），避免长行折行时串行；
+    // 不匹配该格式的行整行作为正文。
+    val parsed = remember(logText) {
+        logText.lines().filter { it.isNotBlank() }.map { line ->
+            if (line.length > 9 && line[2] == ':' && line[5] == ':') {
+                line.substring(0, 8) to line.substring(9)
+            } else {
+                null to line
+            }
+        }
+    }
+    val scrollState = rememberScrollState()
     Column(modifier = modifier) {
-        if (!debugEnabled) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    text = stringResource(R.string.log_disabled_hint),
-                    style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(horizontal = 24.dp),
-                )
-            }
-        } else if (logText.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    text = stringResource(R.string.log_empty),
-                    style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(horizontal = 24.dp),
-                )
-            }
-        } else {
-            Card(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState()),
-                ) {
+        Box(modifier = Modifier.weight(1f)) {
+            if (parsed.isEmpty()) {
+                // 日志只在开启「输出调试日志」时产生，所以空列表时分两种提示。
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        text = logText,
-                        style = MiuixTheme.textStyles.footnote1,
-                        fontFamily = FontFamily.Monospace,
+                        text = stringResource(
+                            if (debugEnabled) R.string.log_empty else R.string.log_disabled_hint,
+                        ),
+                        style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(horizontal = 24.dp),
                     )
                 }
+            } else {
+                Card(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    // SelectionContainer：长按正文弹出系统选择光标，可勾选后复制日志片段。
+                    SelectionContainer {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(scrollState)
+                                .padding(vertical = 8.dp),
+                        ) {
+                            parsed.forEach { (time, message) ->
+                                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp)) {
+                                    if (time != null) {
+                                        Text(
+                                            text = time,
+                                            style = MiuixTheme.textStyles.footnote1,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                        )
+                                    }
+                                    Text(
+                                        text = message,
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        fontFamily = FontFamily.Monospace,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    // 新日志到达时滚到底部，方便看最新一条。
+                    LaunchedEffect(logText) {
+                        scrollState.animateScrollTo(scrollState.maxValue)
+                    }
+                }
             }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                TextButton(
-                    text = stringResource(R.string.log_refresh),
-                    onClick = onRefresh,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(
-                    text = stringResource(R.string.log_clear),
-                    onClick = onClear,
-                    modifier = Modifier.weight(1f),
-                )
-            }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            TextButton(
+                text = stringResource(R.string.log_refresh),
+                onClick = onRefresh,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(
+                text = stringResource(R.string.log_clear),
+                onClick = onClear,
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 }
@@ -1273,29 +1224,76 @@ private fun openApp(context: Context, packageName: String): Boolean = try {
     false
 }
 
+/**
+ * 强制重启目标应用，让模块重新注入。
+ *
+ * <p>两条路径：① 有 root 时 `su -c am force-stop`——这是唯一能杀掉「带前台服务/前台可见」进程的方式
+ * （正在后台播音频的浏览器/音乐应用往往就是这种）；② 没有 root 时退回 `killBackgroundProcesses`，
+ * 它只能杀后台进程，杀不掉的就明确告诉用户，而不是假装成功。
+ *
+ * <p>杀进程是异步的，所以这里会**轮询确认进程真的消失**再重新打开，避免把正在退出的进程又拉起来。
+ * 判定"是否还有进程"借用框架的运行中目标列表（{@code getRunningAppProcesses} 在现代 Android 上
+ * 只返回自身进程，不能用来判断别的应用）。
+ */
 private fun forceRestart(context: Context, packageName: String) {
     Toast.makeText(context, R.string.toast_force_restarting, Toast.LENGTH_SHORT).show()
     Thread {
-        var stopped = false
+        val activityManager = context.getSystemService(ActivityManager::class.java)
+        // ① root 路径：带上超时，Magisk 授权弹窗没人点也不会把工作线程永久挂住。
+        var forceStopOk = false
         try {
-            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "am force-stop $packageName"))
-            process.waitFor()
-            stopped = process.exitValue() == 0
+            val process = Runtime.getRuntime()
+                .exec(arrayOf("su", "-c", "am force-stop $packageName"))
+            forceStopOk = try {
+                process.waitFor(3, TimeUnit.SECONDS) && process.exitValue() == 0
+            } catch (t: Throwable) {
+                process.destroyForcibly()
+                false
+            }
         } catch (t: Throwable) {
+            // 没有 su（未 root 或用户拒绝）：走 ②
         }
-        if (!stopped) {
+        if (!forceStopOk) {
             try {
-                context.getSystemService(ActivityManager::class.java)
-                    .killBackgroundProcesses(packageName)
+                activityManager?.killBackgroundProcesses(packageName)
             } catch (t: Throwable) {
             }
         }
-        try {
-            Thread.sleep(400)
-        } catch (ignored: InterruptedException) {
+
+        // ② 等进程真的消失（最多 2s），否则杀不掉就把结果如实告诉用户。
+        var alive = isProcessAlive(packageName)
+        val deadline = System.currentTimeMillis() + 2000
+        while (alive && System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(100)
+            } catch (ignored: InterruptedException) {
+                break
+            }
+            alive = isProcessAlive(packageName)
         }
-        Handler(Looper.getMainLooper()).post { openApp(context, packageName) }
+        AppLog.append(
+            context,
+            "强制重启 $packageName：root=${if (forceStopOk) "force-stop 成功" else "不可用/被拒"}" +
+                "，进程${if (alive) "仍存活（无法重启）" else "已结束"}",
+        )
+        Handler(Looper.getMainLooper()).post {
+            if (alive) {
+                Toast.makeText(context, R.string.toast_restart_failed, Toast.LENGTH_LONG).show()
+            } else {
+                openApp(context, packageName)
+            }
+        }
     }.start()
+}
+
+/** 该包是否仍有进程被模块注入（= 进程还存在）；服务不可用时按"已结束"处理，尽量让重启流程继续。 */
+private fun isProcessAlive(packageName: String): Boolean = try {
+    App.getXposedService()?.getRunningTargets()?.any { target ->
+        val process = target.getProcessName()
+        process == packageName || process.startsWith("$packageName:")
+    } ?: false
+} catch (t: Throwable) {
+    false
 }
 
 private fun loadOutputDevices(context: Context): List<DeviceEntry> {
@@ -1397,13 +1395,6 @@ private fun loadInstalledApps(context: Context): List<AppEntry> {
         if (result != 0) result else left.packageName.compareTo(right.packageName)
     }
     return entries.values.sortedWith(comparator)
-}
-
-/** 检测当前设备实际使用的 WebView 提供方（无桌面图标的系统应用，只能按包名添加为目标）。 */
-private fun detectWebViewProvider(): String? = try {
-    WebView.getCurrentWebViewPackage()?.packageName
-} catch (t: Throwable) {
-    null
 }
 
 private fun resolveAppLabel(context: Context, packageName: String): String = try {

@@ -22,6 +22,16 @@ final class AppLog {
         if (context == null || message == null) {
             return;
         }
+        // 只有开启「输出调试日志」时才真正产生日志：关闭时这里直接返回（不落盘、不显示）。
+        // 这一处闸门覆盖所有调用方（模块侧经 DebugLogProvider、应用侧的设置/作用域事件等）。
+        try {
+            if (!context.getSharedPreferences(RouteSettings.PREF_GROUP, Context.MODE_PRIVATE)
+                    .getBoolean(RouteSettings.KEY_DEBUG, false)) {
+                return;
+            }
+        } catch (Throwable ignored) {
+            return;
+        }
         try {
             SharedPreferences prefs = context.getSharedPreferences(PREF, Context.MODE_PRIVATE);
             String existing = prefs.getString(KEY_LINES, "");

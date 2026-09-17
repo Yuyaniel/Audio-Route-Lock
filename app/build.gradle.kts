@@ -3,6 +3,10 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
 android {
     namespace = "dev.codex.audioroutelock"
     compileSdk {
@@ -13,8 +17,11 @@ android {
         applicationId = "dev.codex.audioroutelock"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        // 版本号按构建时间自动生成：LSPosed 以「模块代次」判断运行中的目标进程加载的是不是当前版本
+        // （界面上的「待重启」就来自它）。版本号固定不变时，新 hooks 可能被当成旧的、多次构建产物也
+        // 无法区分，所以这里每次构建都自增（秒级时间戳，单调递增且不会超过 versionCode 上限）。
+        versionCode = (System.currentTimeMillis() / 1000L).toInt()
+        versionName = "0.3.0+" + SimpleDateFormat("MMddHHmm", Locale.US).format(Date())
     }
 
     signingConfigs {

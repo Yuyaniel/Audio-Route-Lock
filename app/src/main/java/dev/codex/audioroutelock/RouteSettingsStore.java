@@ -14,6 +14,16 @@ import io.github.libxposed.service.XposedService;
 final class RouteSettingsStore {
     private static final String TAG = "AudioRouteLockStore";
 
+    /** 合并窗口：窗口内连续到达的编辑只镜像最后一次。 */
+    private static final long MIRROR_MERGE_WINDOW_MS = 200L;
+    private static final java.util.concurrent.ExecutorService MIRROR_EXECUTOR =
+            java.util.concurrent.Executors.newSingleThreadExecutor(
+                    runnable -> new Thread(runnable, "route-settings-mirror"));
+    private static final java.util.concurrent.atomic.AtomicReference<RouteSettings> PENDING_MIRROR =
+            new java.util.concurrent.atomic.AtomicReference<>();
+    private static final java.util.concurrent.atomic.AtomicBoolean MIRROR_SCHEDULED =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
     private RouteSettingsStore() {
     }
 
@@ -28,6 +38,34 @@ final class RouteSettingsStore {
     static boolean save(Context context, RouteSettings settings) {
         settings.writeTo(local(context).edit()).apply();
         return mirrorToRemote(settings);
+    }
+
+    // 高频编辑（例如在应用选择器里连续勾选多个应用）用这个：本地立即写，框架侧合并成一次后台任务。
+    // save() 会在调用线程上做 binder + 同步 commit（保证"改完立刻杀掉本应用也不丢"），连点十下就是
+    // 十次主线程 IPC——所以这里把镜像降到后台线程、并在 200ms 窗口内合并成最后一次。
+    // 开关、设备选择、移除应用这类单次操作仍走同步的 save()。
+    static void saveDeferred(Context context, RouteSettings settings) {
+        settings.writeTo(local(context).edit()).apply();
+        PENDING_MIRROR.set(settings);
+        if (MIRROR_SCHEDULED.compareAndSet(false, true)) {
+            MIRROR_EXECUTOR.execute(RouteSettingsStore::drainMirror);
+        }
+    }
+
+    private static void drainMirror() {
+        try {
+            Thread.sleep(MIRROR_MERGE_WINDOW_MS);
+        } catch (InterruptedException ignored) {
+        }
+        RouteSettings latest;
+        while ((latest = PENDING_MIRROR.getAndSet(null)) != null) {
+            mirrorToRemote(latest);
+        }
+        MIRROR_SCHEDULED.set(false);
+        // 收尾：drain 期间又来了新状态（此时没人再调度）→ 再排一次，避免漏掉最后一批。
+        if (PENDING_MIRROR.get() != null && MIRROR_SCHEDULED.compareAndSet(false, true)) {
+            MIRROR_EXECUTOR.execute(RouteSettingsStore::drainMirror);
+        }
     }
 
     /** 把本地设置推送到框架侧，目标进程才能读到；同步 commit，避免进程被杀导致丢失。 */
@@ -47,19 +85,5 @@ final class RouteSettingsStore {
 
     static void syncLocalToRemote(Context context) {
         mirrorToRemote(load(context));
-    }
-
-    /** 清空本地与框架侧的全部设置，并清空应用内日志。 */
-    static void reset(Context context) {
-        local(context).edit().clear().apply();
-        AppLog.clear(context);
-        XposedService service = App.getXposedService();
-        if (service != null) {
-            try {
-                service.deleteRemotePreferences(RouteSettings.PREF_GROUP);
-            } catch (Throwable t) {
-                Log.w(TAG, "Delete remote preferences failed", t);
-            }
-        }
     }
 }
