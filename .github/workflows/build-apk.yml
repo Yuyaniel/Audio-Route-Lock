@@ -33,12 +33,21 @@ jobs:
 
       - name: 安装 Android SDK 37 与 Build Tools 36
         run: |
-          # GitHub 镜像的 sdkmanager 不在 PATH，需用完整路径调用
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
-          # 镜像自带的 sdkmanager 索引较旧，先更新才能识别 android-37
-          "$SDKMANAGER" --update >/dev/null 2>&1 || true
-          "$SDKMANAGER" --install "platforms;android-37" "build-tools;36.0.0"
+          # 镜像自带的 sdkmanager 版本过旧，索引识别不了 2026 年的 android-37，
+          # 改为直接下载官方最新 cmdline-tools 来安装（依次尝试可用版本号）。
+          for VER in 13114758 11076708; do
+            if curl -fsSL -o "$RUNNER_TEMP/cmdtools.zip" "https://dl.google.com/android/repository/commandlinetools-linux-${VER}_latest.zip"; then
+              echo "使用官方 cmdline-tools ${VER}"
+              break
+            fi
+          done
+          rm -rf "$RUNNER_TEMP/cmdtools" && mkdir -p "$RUNNER_TEMP/cmdtools"
+          unzip -q "$RUNNER_TEMP/cmdtools.zip" -d "$RUNNER_TEMP/cmdtools"
+          SDKMANAGER="$RUNNER_TEMP/cmdtools/cmdline-tools/bin/sdkmanager"
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses >/dev/null 2>&1 || true
+          # 若正式版包名不同（preview 后缀 .0），自动回退重试
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --install "platforms;android-37" "build-tools;36.0.0" \
+            || "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --install "platforms;android-37.0" "build-tools;36.0.0"
 
       - name: 构建 APK
         run: gradle assembleDebug assembleRelease --no-daemon
