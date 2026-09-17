@@ -33,8 +33,10 @@ jobs:
 
       - name: 安装 Android SDK 37 与 Build Tools 36
         run: |
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
-          sdkmanager --install "platforms;android-37" "build-tools;36.0.0"
+          # GitHub 镜像的 sdkmanager 不在 PATH，需用完整路径调用
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" --install "platforms;android-37" "build-tools;36.0.0"
 
       - name: 构建 APK
         run: gradle assembleDebug assembleRelease --no-daemon
