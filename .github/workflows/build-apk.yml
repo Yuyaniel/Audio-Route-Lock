@@ -36,6 +36,8 @@ jobs:
           # GitHub 镜像的 sdkmanager 不在 PATH，需用完整路径调用
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          # 镜像自带的 sdkmanager 索引较旧，先更新才能识别 android-37
+          "$SDKMANAGER" --update >/dev/null 2>&1 || true
           "$SDKMANAGER" --install "platforms;android-37" "build-tools;36.0.0"
 
       - name: 构建 APK
