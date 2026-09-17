@@ -13,7 +13,7 @@ import java.util.Date;
 final class AppLog {
     static final String PREF = "app_log";
     static final String KEY_LINES = "lines";
-    private static final int MAX_CHARS = 40000;
+    private static final int MAX_CHARS = 200000;
 
     private AppLog() {
     }

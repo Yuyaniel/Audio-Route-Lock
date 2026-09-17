@@ -59,11 +59,10 @@ public final class ModuleMain extends XposedModule {
     private volatile boolean browserMuted;
     // 最近一次网页静音脚本的返回值，形如 "已静音数|元素数|iframe数|WebAudio数"，供状态行展示。
     private volatile String lastJsSummary;
-    // 上一次写进日志的状态快照 + 写入时刻：内容相同且间隔很短才跳过（设备回调会短时间内重复触发），
-    // 加时间窗是为了让「清空日志」之后状态行能重新出现。
-    private static final long STATUS_DEDUP_WINDOW_MS = 5000L;
+    // 上一次写进日志的状态快照：内容完全相同就不再写。之前用 5 秒时间窗，设备回调风暴下
+    // 状态行仍会持续刷屏，把其它应用的日志挤出缓冲区（X/XF 的记录因此看不见）。
+    // 「清空日志」之后的重写由设置变化触发（applySettings 会清掉这条基线）。
     private volatile String lastStatusLine;
-    private volatile long lastStatusAt;
     // 同一次页面加载可能同时命中「基类 + 子类」两个钩子，做一次去抖避免重复注入。
     private static final long PAGE_LOAD_DEDUP_MS = 500L;
     private volatile WebView lastPageLoadView;
@@ -785,7 +784,6 @@ public final class ModuleMain extends XposedModule {
             return;
         }
         RouteSettings current = settings;
-        long now = System.currentTimeMillis();
         String line = "状态 " + hookedPackage
                 + "｜启用=" + (current != null && current.enabled)
                 + "｜允许出声=" + (isTarget() && !shouldSilenceOutput())
@@ -794,11 +792,10 @@ public final class ModuleMain extends XposedModule {
                 + "｜网页脚本=" + (lastJsSummary == null ? "未执行" : lastJsSummary)
                 + "｜生效层=" + activeSilenceLayer()
                 + "｜静音中=" + browserMuted;
-        if (line.equals(lastStatusLine) && now - lastStatusAt < STATUS_DEDUP_WINDOW_MS) {
+        if (line.equals(lastStatusLine)) {
             return;
         }
         lastStatusLine = line;
-        lastStatusAt = now;
         appendToAppLog(line);
     }
 
