@@ -748,7 +748,7 @@ public final class ModuleMain extends XposedModule {
         if (device == null) {
             return null;
         }
-        return AudioDeviceMatcher.findLockedDevice(context, device.type, device.address);
+        return AudioDeviceMatcher.findLockedDevice(context, device.type, device.name, device.address);
     }
 
     private boolean shouldSilenceWhenMissing() {
