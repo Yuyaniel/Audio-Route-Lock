@@ -104,4 +104,19 @@
     <string name="device_type_ip">IP 音频设备</string>
     <string name="device_type_bus">总线音频设备</string>
     <string name="device_type_other">输出设备（类型 %1$d）</string>
+
+    <string name="add_webview_provider">添加 WebView 提供方</string>
+    <string name="add_webview_provider_summary">解决 Via 等浏览器网页音频不生效</string>
+    <string name="add_webview_provider_summary_with_pkg">解决 Via 等网页音频（当前提供方：%1$s）</string>
+    <string name="add_by_package">按包名添加应用</string>
+    <string name="add_by_package_summary">手动输入包名，可添加无桌面图标的系统应用</string>
+    <string name="manual_add_title">按包名添加目标应用</string>
+    <string name="manual_add_summary">适用于没有桌面图标的系统应用（如 WebView 提供方）</string>
+    <string name="manual_add_hint">输入应用包名</string>
+    <string name="toast_pkg_empty">请输入应用包名</string>
+    <string name="toast_pkg_self">不能添加本模块自身</string>
+    <string name="toast_pkg_already">该应用已在目标列表中</string>
+    <string name="toast_pkg_invalid">未找到该包名的应用</string>
+    <string name="toast_pkg_added">已添加 %1$s，请授权作用域并重启使其生效</string>
+    <string name="toast_webview_missing">未检测到 WebView 提供方</string>
 </resources>

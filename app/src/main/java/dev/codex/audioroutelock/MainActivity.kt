@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.webkit.WebView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -155,6 +156,7 @@ private fun AudioRouteLockApp() {
     var pendingRemoval by remember { mutableStateOf<String?>(null) }
     var appActionsTarget by remember { mutableStateOf<String?>(null) }
     var pendingReset by remember { mutableStateOf(false) }
+    var manualAddOpen by remember { mutableStateOf(false) }
     var logText by remember { mutableStateOf("") }
 
     fun refreshStatus() {
@@ -216,6 +218,67 @@ private fun AudioRouteLockApp() {
         refreshStatus()
         AppLog.append(context, "已恢复默认设置")
         Toast.makeText(context, R.string.reset_done, Toast.LENGTH_SHORT).show()
+    }
+
+    /** 把包名加入目标列表（校验非空/非自身/未重复/已安装），新目标继承已有应用的设备配置。 */
+    fun addTarget(packageName: String): Boolean {
+        val trimmed = packageName.trim()
+        if (trimmed.isEmpty()) {
+            Toast.makeText(context, R.string.toast_pkg_empty, Toast.LENGTH_SHORT).show()
+            return false
+        }
+        if (trimmed == context.packageName) {
+            Toast.makeText(context, R.string.toast_pkg_self, Toast.LENGTH_SHORT).show()
+            return false
+        }
+        if (targets.contains(trimmed)) {
+            Toast.makeText(context, R.string.toast_pkg_already, Toast.LENGTH_SHORT).show()
+            return false
+        }
+        val installed = try {
+            context.packageManager.getApplicationInfo(trimmed, 0)
+            true
+        } catch (t: Throwable) {
+            false
+        }
+        if (!installed) {
+            Toast.makeText(context, R.string.toast_pkg_invalid, Toast.LENGTH_SHORT).show()
+            return false
+        }
+        // 新加入的应用继承已有应用配置的设备，没有配置则留空待设置（与选择页逻辑一致）。
+        val inherited = targets.firstNotNullOfOrNull { deviceMap[it] }
+        targets = targets + trimmed
+        if (inherited != null) {
+            deviceMap = deviceMap + (trimmed to inherited)
+        }
+        persist()
+        refreshStatus()
+        AppLog.append(context, "已添加目标应用 $trimmed")
+        Toast.makeText(
+            context,
+            context.getString(R.string.toast_pkg_added, trimmed),
+            Toast.LENGTH_LONG,
+        ).show()
+        return true
+    }
+
+    /** 一键把当前设备实际使用的 WebView 提供方加入目标（解决 Via 等浏览器网页音频不生效）。 */
+    fun addWebViewProvider() {
+        val provider = try {
+            WebView.getCurrentWebViewPackage()?.packageName
+        } catch (t: Throwable) {
+            null
+        }
+        if (provider == null) {
+            Toast.makeText(context, R.string.toast_webview_missing, Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (targets.contains(provider)) {
+            Toast.makeText(context, R.string.toast_pkg_already, Toast.LENGTH_SHORT).show()
+            return
+        }
+        addTarget(provider)
+        AppLog.append(context, "WebView 提供方：$provider")
     }
 
     DisposableEffect(Unit) {
@@ -359,6 +422,8 @@ private fun AudioRouteLockApp() {
                     deviceMap = deviceMap + (packageName to entry.toDeviceRef())
                     persist()
                 },
+                onAddByPackage = { manualAddOpen = true },
+                onAddWebViewProvider = { addWebViewProvider() },
             )
 
             AppTab.Log -> LogTab(
@@ -431,6 +496,17 @@ private fun AudioRouteLockApp() {
                     )
                 }
             }
+        }
+
+        if (manualAddOpen) {
+            ManualAddDialog(
+                onDismiss = { manualAddOpen = false },
+                onAdd = { packageName ->
+                    if (addTarget(packageName)) {
+                        manualAddOpen = false
+                    }
+                },
+            )
         }
 
         if (pendingReset) {
@@ -614,6 +690,8 @@ private fun AppsTab(
     onRemoveRequest: (String) -> Unit,
     onAppActionsRequest: (String) -> Unit,
     onDeviceSelected: (String, DeviceEntry) -> Unit,
+    onAddByPackage: () -> Unit,
+    onAddWebViewProvider: () -> Unit,
 ) {
     val context = LocalContext.current
 
@@ -637,6 +715,23 @@ private fun AppsTab(
                     stringResource(R.string.target_app_count, targets.size)
                 },
                 onClick = onPickApps,
+            )
+            HorizontalDivider(modifier = Modifier.padding(start = 16.dp))
+            val webViewProvider = remember { detectWebViewProvider() }
+            ArrowPreference(
+                title = stringResource(R.string.add_webview_provider),
+                summary = if (webViewProvider != null) {
+                    stringResource(R.string.add_webview_provider_summary_with_pkg, webViewProvider)
+                } else {
+                    stringResource(R.string.add_webview_provider_summary)
+                },
+                onClick = onAddWebViewProvider,
+            )
+            HorizontalDivider(modifier = Modifier.padding(start = 16.dp))
+            ArrowPreference(
+                title = stringResource(R.string.add_by_package),
+                summary = stringResource(R.string.add_by_package_summary),
+                onClick = onAddByPackage,
             )
         }
 
@@ -1039,6 +1134,47 @@ private fun AppPickerScreen(
 }
 
 @Composable
+private fun ManualAddDialog(
+    onDismiss: () -> Unit,
+    onAdd: (String) -> Unit,
+) {
+    var input by remember { mutableStateOf("") }
+    OverlayDialog(
+        show = true,
+        title = stringResource(R.string.manual_add_title),
+        summary = stringResource(R.string.manual_add_summary),
+        onDismissRequest = onDismiss,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            TextField(
+                value = input,
+                onValueChange = { input = it },
+                label = stringResource(R.string.manual_add_hint),
+                useLabelAsPlaceholder = true,
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                TextButton(
+                    text = stringResource(R.string.cancel),
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f),
+                )
+                Button(
+                    onClick = { onAdd(input) },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(stringResource(R.string.confirm))
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun AppIcon(icon: ImageBitmap?, size: Dp) {
     if (icon == null) {
         Spacer(modifier = Modifier.width(0.dp))
@@ -1261,6 +1397,13 @@ private fun loadInstalledApps(context: Context): List<AppEntry> {
         if (result != 0) result else left.packageName.compareTo(right.packageName)
     }
     return entries.values.sortedWith(comparator)
+}
+
+/** 检测当前设备实际使用的 WebView 提供方（无桌面图标的系统应用，只能按包名添加为目标）。 */
+private fun detectWebViewProvider(): String? = try {
+    WebView.getCurrentWebViewPackage()?.packageName
+} catch (t: Throwable) {
+    null
 }
 
 private fun resolveAppLabel(context: Context, packageName: String): String = try {
