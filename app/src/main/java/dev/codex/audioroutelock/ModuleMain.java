@@ -21,6 +21,7 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -63,6 +64,9 @@ public final class ModuleMain extends XposedModule {
     // 状态行仍会持续刷屏，把其它应用的日志挤出缓冲区（X/XF 的记录因此看不见）。
     // 「清空日志」之后的重写由设置变化触发（applySettings 会清掉这条基线）。
     private volatile String lastStatusLine;
+    // 「一次性事件」日志的按类别去重基线（key=来源类别）：同一条静音/匹配失败消息内容不变
+    // 就不再重写，既能留下证据又不会刷屏。
+    private final Map<String, String> lastLoggedOnce = new HashMap<>();
     // 同一次页面加载可能同时命中「基类 + 子类」两个钩子，做一次去抖避免重复注入。
     private static final long PAGE_LOAD_DEDUP_MS = 500L;
     private volatile WebView lastPageLoadView;
@@ -194,6 +198,9 @@ public final class ModuleMain extends XposedModule {
             hookMediaPlayerVolume();
             hookBrowserAudio();
             registerDeviceCallback();
+            // 安装完成时的设备现场快照：之后任何静音都能对照「当时设备长什么样」。
+            logEventOnce("startup-dump", "【启动】" + hookedPackage + " 钩子已安装｜锁定目标="
+                    + describeExpected() + "｜当前输出=" + describeDeviceSet());
         } catch (Throwable t) {
             log(Log.ERROR, TAG, "Failed to install hooks", t);
         }
@@ -211,6 +218,9 @@ public final class ModuleMain extends XposedModule {
                             AudioTrack track = (AudioTrack) receiver;
                             knownTracks.add(track);
                             if (!applyPreferredDevice(track) && shouldSilenceWhenMissing()) {
+                                // 之前这里静音不留任何记录，导致「没声音却查不到原因」。
+                                logEventOnce("track-ctor-mute",
+                                        "【静音】AudioTrack 创建即被静音（原因=锁定设备匹配失败，方法=setVolume(0)）");
                                 muteTrack(track);
                             }
                         }
@@ -243,6 +253,8 @@ public final class ModuleMain extends XposedModule {
                         if (isTarget() && !lockedDeviceAvailable() && shouldSilenceWhenMissing()) {
                             Object receiver = chain.getThisObject();
                             if (receiver instanceof AudioTrack && knownTracks.contains(receiver)) {
+                                logEventOnce("track-volume-force",
+                                        "【静音】应用调用 AudioTrack.setVolume 被强制改为 0（原因=锁定设备不可用，方法=钩子改参）");
                                 return chain.proceed(new Object[]{0f});
                             }
                         }
@@ -262,6 +274,8 @@ public final class ModuleMain extends XposedModule {
                         if (isTarget() && !lockedDeviceAvailable() && shouldSilenceWhenMissing()) {
                             Object receiver = chain.getThisObject();
                             if (receiver instanceof MediaPlayer && knownPlayers.contains(receiver)) {
+                                logEventOnce("player-volume-force",
+                                        "【静音】应用调用 MediaPlayer.setVolume 被强制改为 0（原因=锁定设备不可用，方法=钩子改参）");
                                 return chain.proceed(new Object[]{0f, 0f});
                             }
                         }
@@ -301,6 +315,7 @@ public final class ModuleMain extends XposedModule {
                         MediaPlayer player = (MediaPlayer) receiver;
                         knownPlayers.add(player);
                         if (!lockedDeviceAvailable() && shouldSilenceWhenMissing()) {
+                            logDeviceMiss("MediaPlayer.start");
                             logEvent("已静音 MediaPlayer（锁定设备不可用）");
                             mutePlayer(player);
                         } else {
@@ -660,6 +675,10 @@ public final class ModuleMain extends XposedModule {
      */
     private void setMuted(boolean lockDeviceMissing) {
         boolean silence = lockDeviceMissing && shouldSilenceWhenMissing();
+        // 判定变化的证据：为什么进静音/为什么解除。内容会在两种状态间翻转，每次翻转各写一条。
+        logEventOnce("set-muted", "【判定】" + (silence ? "进入静音" : "解除静音")
+                + "（原因=锁定设备" + (lockDeviceMissing ? "不可用" : "可用")
+                + "，静音开关=" + shouldSilenceWhenMissing() + "）");
         applySilence(silence, silence);
     }
 
@@ -719,11 +738,16 @@ public final class ModuleMain extends XposedModule {
         }
         AudioDeviceInfo device = findLockedDevice();
         if (device == null) {
-            debug("Locked output is unavailable");
+            // 匹配失败时把「期望配置 vs 系统当前设备」完整 dump 进日志页，失配原因一目了然。
+            logDeviceMiss("AudioTrack 路由");
             return false;
         }
         boolean ok = track.setPreferredDevice(device);
         debug("setPreferredDevice(" + AudioDeviceMatcher.displayName(device) + ") -> " + ok);
+        if (!ok) {
+            logEventOnce("spd-rejected",
+                    "【路由】setPreferredDevice(" + AudioDeviceMatcher.displayName(device) + ") 返回 false（设备已找到但系统拒绝锁定）");
+        }
         return ok;
     }
 
@@ -753,6 +777,69 @@ public final class ModuleMain extends XposedModule {
     private boolean shouldSilenceWhenMissing() {
         RouteSettings current = settings;
         return isTarget() && current.muteWhenMissing;
+    }
+
+    /** 同一类别的事件日志：内容不变就不重写（防刷屏），内容一变立即写。 */
+    private void logEventOnce(String key, String message) {
+        synchronized (lastLoggedOnce) {
+            if (message.equals(lastLoggedOnce.get(key))) {
+                return;
+            }
+            lastLoggedOnce.put(key, message);
+        }
+        logEvent(message);
+    }
+
+    /**
+     * 设备匹配失败时的现场快照：配置里期望的设备（类型/名称/地址）vs 系统当前上报的全部输出设备。
+     * 排查「明明在线却被判离线」全靠这一条。
+     */
+    private void logDeviceMiss(String where) {
+        if (!debugEnabled()) {
+            return;
+        }
+        logEventOnce("device-miss", "【设备匹配失败】" + where
+                + "｜锁定目标=" + describeExpected()
+                + "｜当前输出=" + describeDeviceSet());
+    }
+
+    private String describeExpected() {
+        RouteSettings current = settings;
+        RouteSettings.DeviceRef ref = current == null || hookedPackage == null
+                ? null : current.deviceFor(hookedPackage);
+        if (ref == null) {
+            return "无设备配置";
+        }
+        return AudioDeviceMatcher.typeName(ref.type)
+                + "「" + (ref.name.isEmpty() ? "未存名" : ref.name) + "」"
+                + "地址=" + (ref.address.isEmpty() ? "(空)" : ref.address);
+    }
+
+    private String describeDeviceSet() {
+        Context context = appContext == null ? findContext() : appContext;
+        appContext = context;
+        AudioManager audioManager = context == null ? null : context.getSystemService(AudioManager.class);
+        if (audioManager == null) {
+            return "(AudioManager 不可用)";
+        }
+        StringBuilder builder = new StringBuilder();
+        boolean first = true;
+        for (AudioDeviceInfo device : audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
+            if (!device.isSink()) {
+                continue;
+            }
+            if (!first) {
+                builder.append('；');
+            }
+            first = false;
+            builder.append(AudioDeviceMatcher.typeName(device.getType()))
+                    .append("「").append(AudioDeviceMatcher.displayName(device)).append("」")
+                    .append("地址=").append(device.getAddress().isEmpty() ? "(空)" : device.getAddress());
+        }
+        if (first) {
+            builder.append("(无输出设备)");
+        }
+        return builder.toString();
     }
 
     private Context findContext() {
