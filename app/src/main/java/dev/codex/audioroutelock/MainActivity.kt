@@ -3,6 +3,7 @@ package dev.codex.audioroutelock
 import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
@@ -260,7 +261,19 @@ private fun AudioRouteLockApp() {
     DisposableEffect(Unit) {
         val listener = Runnable { Handler(Looper.getMainLooper()).post { refreshStatus() } }
         App.addServiceListener(listener)
-        onDispose { App.removeServiceListener(listener) }
+        // 日志实时刷新：注入进程经 DebugLogProvider 写入（跨进程也会改到本应用的 app_log 偏好），
+        // 监听其变化即可，不用重进应用或手动刷新。
+        val logPrefs = context.getSharedPreferences(AppLog.PREF, Context.MODE_PRIVATE)
+        val logListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == AppLog.KEY_LINES) {
+                Handler(Looper.getMainLooper()).post { logText = AppLog.read(context) }
+            }
+        }
+        logPrefs.registerOnSharedPreferenceChangeListener(logListener)
+        onDispose {
+            App.removeServiceListener(listener)
+            logPrefs.unregisterOnSharedPreferenceChangeListener(logListener)
+        }
     }
 
     LaunchedEffect(tab, picking) {
