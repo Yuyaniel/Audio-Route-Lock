@@ -17,6 +17,18 @@ android {
         versionName = "0.2.0"
     }
 
+    signingConfigs {
+        // 签名信息来自环境变量（CI 通过 secrets 注入）。
+        // 本地未设置环境变量时保持为空，release 构建结果与之前一致（未签名）。
+        create("release") {
+            val env = System.getenv()
+            storeFile = env["KEYSTORE_FILE"]?.let { file(it) }
+            storePassword = env["KEYSTORE_PASSWORD"]
+            keyAlias = env["KEY_ALIAS"]
+            keyPassword = env["KEY_PASSWORD"]
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -24,6 +36,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            // 仅在提供 keystore 时签名，否则保持未签名（不破坏本地构建）
+            if (System.getenv("KEYSTORE_FILE") != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
