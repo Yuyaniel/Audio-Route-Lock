@@ -3,9 +3,8 @@ name: 构建 APK
 on:
   # 支持在 GitHub Actions 页面手动触发
   workflow_dispatch:
-  # push 到主分支时自动触发
+  # push 到任意分支都会自动触发
   push:
-    branches: [main, master]
 
 jobs:
   build:
